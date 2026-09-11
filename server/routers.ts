@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { addMessage, createConversation, createTask, getConversationMessages, getRecentConversations, getTask, getTasks, getUserContext, saveUserContext, updateTaskDetails, updateTaskStatus } from "./db";
 import { classifyIntent, createAssistantReply, defaultToolExecutor, prototypeTools, type AssistantMessage } from "./assistantCore";
+import { hermesToolExecutor } from "./hermesBridge";
 import { parseTaskTime } from "./taskTime";
 import { InworldTtsError, normalizeSpeechText, synthesizeInworldSpeech } from "./inworldTts";
 
@@ -99,7 +100,8 @@ export const appRouter = router({
       const context = userId ? await getUserContext(userId) : undefined;
       const memory = context?.contextNotes ? [context.contextNotes] : [];
       const history: AssistantMessage[] = input.history.map(item => ({ role: item.role, content: item.content }));
-      const reply = await createAssistantReply(input.message, history, memory, defaultToolExecutor);
+      const toolExecutor = /test Hermes connectivity|test hermes|hermes connectivity/i.test(input.message) ? hermesToolExecutor : defaultToolExecutor;
+      const reply = await createAssistantReply(input.message, history, memory, toolExecutor);
       if (userId && !conversationId) conversationId = await createConversation(userId, input.message, reply.mode);
       if (userId && conversationId) {
         await addMessage(userId, conversationId, "user", input.message, reply.mode);

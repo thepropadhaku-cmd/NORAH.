@@ -223,6 +223,23 @@ const assertApiKey = () => {
   }
 };
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+
+const assertGeminiApiKey = () => {
+  if (!ENV.geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+};
+
+const toGeminiText = (content: MessageContent | MessageContent[]): string =>
+  ensureArray(content)
+    .map(part => {
+      if (typeof part === "string") return part;
+      if (part.type === "text") return part.text;
+      throw new Error("Gemini reasoning provider only supports text messages");
+    })
+    .join("\n");
+
 const normalizeResponseFormat = ({
   responseFormat,
   response_format,
@@ -418,6 +435,63 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   return (await response.json()) as InvokeResult;
+}
+
+export async function invokeGeminiLLM({ messages }: Pick<InvokeParams, "messages">): Promise<InvokeResult> {
+  assertGeminiApiKey();
+
+  const systemMessages = messages.filter(message => message.role === "system");
+  const conversationMessages = messages
+    .filter(message => message.role !== "system")
+    .map(message => ({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: toGeminiText(message.content) }],
+    }));
+
+  const payload: Record<string, unknown> = {
+    contents: conversationMessages,
+  };
+  if (systemMessages.length > 0) {
+    payload.systemInstruction = {
+      parts: [{ text: systemMessages.map(message => toGeminiText(message.content)).join("\n\n") }],
+    };
+  }
+
+  const response = await fetchWithBackoff(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(ENV.geminiApiKey)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Gemini invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+    );
+  }
+
+  const result = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const content = result.candidates?.[0]?.content?.parts
+    ?.map(part => part.text ?? "")
+    .join("")
+    .trim();
+  if (!content) throw new Error("Gemini returned an empty response");
+
+  return {
+    id: "gemini-response",
+    created: Date.now(),
+    model: GEMINI_MODEL,
+    choices: [{
+      index: 0,
+      message: { role: "assistant", content },
+      finish_reason: "stop",
+    }],
+  };
 }
 
 export type ModelInfo = {

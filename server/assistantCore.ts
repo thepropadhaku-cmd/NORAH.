@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { invokeGeminiLLM } from "./_core/llm";
 
 export type AssistantMode = "plan" | "write" | "learn" | "organize" | "troubleshoot" | "general";
 
@@ -60,10 +60,10 @@ export const defaultToolExecutor: ToolExecutor = {
 
 export const managedModelProvider: ModelProvider = {
   async complete(messages) {
-    const response = await invokeLLM({ messages });
+    const response = await invokeGeminiLLM({ messages });
     const content = response.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) throw new Error("Provider returned an empty response");
-    return { content, model: "managed-provider", live: true };
+    return { content, model: response.model, live: true };
   },
 };
 
@@ -165,12 +165,18 @@ export function fallbackReply(input: string, mode: AssistantMode): string {
 
 export async function createAssistantReply(input: string, history: AssistantMessage[], memory: string[] = [], toolExecutor: ToolExecutor = defaultToolExecutor): Promise<{ content: string; mode: AssistantMode; model: string; live: boolean }> {
   const mode = inferMode(input);
-  const requestedTool = /calendar|schedule a meeting|browse the web|search online|web search/i.test(input) ? (/calendar|schedule a meeting/i.test(input) ? "calendar" : "web") : null;
+  const requestedTool = /test Hermes connectivity|test hermes|hermes connectivity/i.test(input)
+    ? "hermes-connectivity"
+    : /calendar|schedule a meeting|browse the web|search online|web search/i.test(input)
+      ? (/calendar|schedule a meeting/i.test(input) ? "calendar" : "web")
+      : null;
+  let toolContext = "";
   if (requestedTool) {
     const toolStatus = await toolExecutor.execute(requestedTool, { query: input });
     if (!toolStatus.ok) return { content: `${fallbackReply(input, mode)}\n\nTool readiness: ${toolStatus.message}`, mode, model: "local-fallback", live: false };
+    toolContext = `\nExternal execution result (verified by NORAH): ${toolStatus.message}`;
   }
-  const context = memory.length ? `\nRelevant user context (treat as hints, not facts):\n${memory.join("\n")}` : "";
+  const context = `${memory.length ? `\nRelevant user context (treat as hints, not facts):\n${memory.join("\n")}` : ""}${toolContext}`;
   const messages: AssistantMessage[] = [
     { role: "system", content: `${SYSTEM_PROMPT}\nCurrent mode: ${mode}.${context}` },
     ...history.slice(-10),
@@ -184,5 +190,5 @@ export async function createAssistantReply(input: string, history: AssistantMess
     console.warn("[AssistantCore] Falling back after provider error", error instanceof Error ? error.message : error);
   }
 
-  return { content: fallbackReply(input, mode), mode, model: "local-fallback", live: false };
+  return { content: `${fallbackReply(input, mode)}${toolContext ? `\n\n${toolContext.trim()}` : ""}`, mode, model: "local-fallback", live: false };
 }
