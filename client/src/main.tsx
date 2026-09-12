@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { trpc } from "@/lib/trpc";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -37,10 +38,14 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+const TRPC_URL = Capacitor.isNativePlatform()
+  ? "https://manusai-jfawovjd.manus.space/api/trpc"
+  : "/api/trpc";
+
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: TRPC_URL,
       transformer: superjson,
       headers() {
         // Preview auto-login fallback: when the browser blocks iframe cookies
