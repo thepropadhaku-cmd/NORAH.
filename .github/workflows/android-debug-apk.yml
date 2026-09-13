@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Apply NORAH auth patch
+        run: unzip -o norah-auth-patch.zip
+
       - name: Build web app
         run: pnpm build
 
