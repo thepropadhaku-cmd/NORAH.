@@ -20,6 +20,7 @@ const starterPrompts = [
   { icon: SquarePen, eyebrow: "Write", title: "Shape the words", prompt: "Help me write a clear, warm message for a situation I’m overthinking." },
   { icon: Leaf, eyebrow: "Learn", title: "Understand something deeply", prompt: "Teach me a complex idea simply, with an example I can remember." },
   { icon: Zap, eyebrow: "Fix", title: "Get unstuck", prompt: "Help me troubleshoot a problem by separating symptoms from likely causes." },
+  { icon: Leaf, eyebrow: "Organize", title: "Clear the mental desk", prompt: "Help me organize my tasks, ideas, and commitments into a simple order." },
 ];
 
 const initialMessage: ChatMessage = {
@@ -205,7 +206,7 @@ export default function Home() {
               onSend={handleSend}
               onCopy={copyMessage}
               onSpeak={speakAssistantMessage}
-              speakPending={speak.isPending}
+              speak={speak}
             />
           ) : (
             <YourDaySurface
@@ -275,7 +276,7 @@ export default function Home() {
   );
 }
 
-function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendingTaskProposal, copied, speakingMessage, voiceStatus, scrollRef, input, onInputChange, onSend, onCopy, onSpeak, speakPending }: {
+function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendingTaskProposal, copied, speakingMessage, voiceStatus, scrollRef, input, onInputChange, onSend, onCopy, onSpeak, speak }: {
   messages: ChatMessage[];
   isThinking: boolean;
   phase: "idle" | "composing" | "thinking" | "responding" | "error";
@@ -291,7 +292,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
   onSend: (value?: string) => void;
   onCopy: (content: string, index: number) => void;
   onSpeak: (text: string, index: number) => void;
-  speakPending: boolean;
+  speak: { isPending: boolean };
 }) {
   return (
     <section className="relative flex min-w-0 flex-1 flex-col">
@@ -323,7 +324,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
                       <span className="text-[11px] font-semibold tracking-[0.04em] text-[var(--n-text-dim)]">Norah</span>
                       {message.mode && message.mode !== "general" && <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--n-text-faint)]">{message.mode}</span>}
                       <button onClick={() => onCopy(message.content, index)} className="ml-auto text-[var(--n-text-faint)] transition-colors hover:text-[var(--n-text)]" aria-label="Copy response">{copied === index ? <Check className="size-3.5 text-[var(--n-violet-soft)]" /> : <Copy className="size-3.5" />}</button>
-                      <button onClick={() => void onSpeak(message.content, index)} className="text-[var(--n-text-faint)] transition-colors hover:text-[var(--n-text)]" aria-label="Play response" title={voiceStatus === "error" ? "Voice unavailable" : "Play response"} disabled={speakPending}><Volume2 className={cn("size-3.5", speakingMessage === index && "text-[var(--n-violet-soft)]")} /></button>
+                      <button onClick={() => void onSpeak(message.content, index)} className="text-[var(--n-text-faint)] transition-colors hover:text-[var(--n-text)]" aria-label="Play response" title={voiceStatus === "error" ? "Voice unavailable" : "Play response"} disabled={speak.isPending}><Volume2 className={cn("size-3.5", speakingMessage === index && "text-[var(--n-violet-soft)]")} /></button>
                     </div>
                   )}
                   {message.role === "assistant" ? <div className="prose prose-sm prose-invert max-w-none text-[14px] leading-7 text-[var(--n-text-dim)]"><Streamdown>{message.content}</Streamdown></div> : <p className="whitespace-pre-wrap">{message.content}</p>}
@@ -359,6 +360,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
         <form onSubmit={e => { e.preventDefault(); onSend(); }} className="pointer-events-auto flex w-full max-w-[640px] items-end gap-2 rounded-[20px] border border-[var(--n-border)] bg-white/[0.035] p-2 shadow-[0_10px_30px_rgba(6,5,10,0.45)] backdrop-blur focus-within:border-[rgba(156,123,255,0.45)] focus-within:ring-4 focus-within:ring-[rgba(124,77,255,0.14)]">
           <Textarea value={input} onChange={e => onInputChange(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} placeholder="Ask Norah anything…" className="min-h-[42px] max-h-28 resize-none border-0 bg-transparent px-3 py-2.5 text-sm text-[var(--n-text)] shadow-none placeholder:text-[var(--n-text-faint)] focus-visible:ring-0" rows={1} aria-label="Message Norah" />
           <Button type="button" variant="ghost" size="icon" className="mb-0.5 hidden rounded-full text-[var(--n-text-dim)] hover:bg-white/5 sm:flex" aria-label="Voice input (not yet connected)" title="Voice input isn't wired to the assistant core yet"><Mic className="size-4" /></Button>
+          <div className="mb-1 mr-1 hidden text-[10px] text-[var(--n-text-faint)] sm:block">{voiceStatus === "loading" ? "Preparing Norah’s voice…" : voiceStatus === "speaking" ? "Norah is speaking" : voiceStatus === "fallback" ? "Browser voice fallback" : voiceStatus === "error" ? "Voice unavailable · try replay" : phase === "composing" ? "Ready when you are" : phase === "responding" ? "Response ready" : phase === "error" ? "Retry available" : ""}</div>
           <Button type="submit" size="icon" disabled={!input.trim() || isThinking} className="mb-0.5 size-9 shrink-0 rounded-[13px] bg-[var(--n-violet)] text-white shadow-none hover:bg-[var(--n-violet-soft)] disabled:bg-white/[0.06] disabled:text-[var(--n-text-faint)]"><ArrowUp className="size-4" /></Button>
         </form>
       </div>
