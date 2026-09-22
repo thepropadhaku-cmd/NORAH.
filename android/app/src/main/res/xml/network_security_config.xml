@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain-HTTP (cleartext) traffic ONLY to the NORAH Core server
+  running locally on-device in Termux. Cleartext stays blocked for
+  every other host, per Android's default policy on targetSdkVersion 36.
+
+  To point this at a different Termux host/port later:
+  - Port changes need no edit here — this config is host-only, not
+    host:port, so a port change alone requires nothing.
+  - Host changes: edit the <domain> value(s) below to match.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
