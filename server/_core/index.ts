@@ -28,9 +28,45 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+// The web build is served same-origin, so it never needed CORS. The
+// Capacitor Android build is a genuinely different origin (Capacitor's
+// default androidScheme is "https", so the app runs from
+// https://localhost) calling this server's absolute /api/trpc URL with
+// credentials: "include". Without explicit CORS headers, the WebView
+// blocks every response before the frontend's tRPC client ever sees it —
+// which surfaces in the app as "I couldn't reach the assistant core just
+// now" regardless of whether the LLM provider itself is configured
+// correctly. This allowlist covers the Capacitor app and local dev
+// origins; it intentionally does not reflect arbitrary origins.
+const CORS_ALLOWED_ORIGINS = [
+  /^https:\/\/localhost(?::\d+)?$/, // Capacitor default androidScheme
+  /^capacitor:\/\/localhost$/, // legacy/iOS Capacitor scheme
+  /^https?:\/\/localhost(?::\d+)?$/, // local web dev
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/,
+];
+
+function applyCors(app: express.Express) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && CORS_ALLOWED_ORIGINS.some(pattern => pattern.test(origin))) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  applyCors(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
