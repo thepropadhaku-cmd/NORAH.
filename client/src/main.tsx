@@ -39,7 +39,7 @@ queryClient.getMutationCache().subscribe(event => {
 });
 
 const TRPC_URL = Capacitor.isNativePlatform()
-  ? "https://manusai-jfawovjd.manus.space/api/trpc"
+  ? "http://127.0.0.1:3000/api/trpc"
   : "/api/trpc";
 
 const trpcClient = trpc.createClient({
