@@ -73,10 +73,34 @@ button:active { transform: scale(.985); }
 @keyframes pulse { 0%,80%,100% { opacity:.3; transform:scale(.8); } 40% { opacity:1; transform:scale(1); } }
 
 /* ===================================================================
-   NORAH orb
-   Layered glass sphere. State is driven by a data-state attribute
-   set from React so all motion lives in CSS, not JS.
+   NORAH presence — orb + translucent film
+   Two-layer system, one state machine (idle/summon/listening/
+   thinking/speaking/dismiss), driven entirely by a data-state
+   attribute so all motion lives in CSS, not JS.
+
+   Shared color language (--orb-hue/--orb-sat/--orb-light, registered
+   below via @property so they can transition smoothly instead of
+   snapping between states): a near-black orb core stays constant
+   across all states — only these three channels change, and both the
+   orb's filaments and the film read from them, so they always move
+   together as one system.
 =================================================================== */
+@property --orb-hue {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 82;
+}
+@property --orb-sat {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 28%;
+}
+@property --orb-light {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 46%;
+}
+
 .norah-orb {
   position: relative;
   display: inline-flex;
@@ -84,16 +108,23 @@ button:active { transform: scale(.985); }
   justify-content: center;
   border-radius: 50%;
   flex-shrink: 0;
+  --orb-hue: 82;   /* lime, idle default */
+  --orb-sat: 28%;
+  --orb-light: 46%;
+  transition: --orb-hue 1.1s ease, --orb-sat 1.1s ease, --orb-light 1.1s ease;
 }
+
 .norah-orb__halo {
   position: absolute;
-  inset: -34%;
+  inset: -30%;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--n-glow) 0%, rgba(124,77,255,0) 68%);
+  background: radial-gradient(circle, hsl(var(--orb-hue) var(--orb-sat) var(--orb-light) / .30) 0%, transparent 68%);
   filter: blur(6px);
-  opacity: .45;
+  opacity: .3;
   transition: opacity .6s ease;
 }
+
+/* The black core: refined and glossy, not a generic glass ball. */
 .norah-orb__glass {
   position: relative;
   width: 100%;
@@ -101,62 +132,169 @@ button:active { transform: scale(.985); }
   border-radius: 50%;
   overflow: hidden;
   background:
-    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,.16), rgba(255,255,255,0) 40%),
-    radial-gradient(90% 90% at 70% 78%, var(--n-violet-deep), transparent 60%),
-    radial-gradient(100% 100% at 50% 50%, #241541 0%, #0e0a1c 72%, #08060f 100%);
+    radial-gradient(120% 120% at 28% 20%, rgba(255,255,255,.09), transparent 40%),
+    radial-gradient(100% 100% at 50% 58%, #0c0c0e 0%, #060607 62%, #020203 100%);
   box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.10),
-    inset 0 -6px 14px rgba(0,0,0,.5),
-    inset 0 4px 10px rgba(255,255,255,.05),
-    0 6px 24px rgba(20, 8, 46, .55);
+    inset 0 0 0 1px rgba(255,255,255,.07),
+    inset 0 -5px 12px rgba(0,0,0,.65),
+    inset 0 3px 7px rgba(255,255,255,.045),
+    0 4px 16px rgba(0,0,0,.5);
 }
-.norah-orb__core {
+
+/* Thin luminous filaments — light moving through the black core.
+   No diffuse glow blob; two slim streaks at different angles/speeds. */
+.norah-orb__filament {
   position: absolute;
-  inset: 8%;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, var(--n-violet) 0deg, var(--n-pink) 110deg, var(--n-violet-deep) 220deg, var(--n-violet) 360deg);
-  filter: blur(9px) saturate(1.15);
+  left: -25%;
+  width: 150%;
+  height: 12%;
+  top: 44%;
+  transform: translateY(-50%) rotate(-15deg);
+  background: linear-gradient(100deg,
+    transparent 0%, transparent 38%,
+    hsl(var(--orb-hue) var(--orb-sat) calc(var(--orb-light) + 20%) / .8) 50%,
+    transparent 62%, transparent 100%);
+  background-size: 260% 100%;
+  filter: blur(1px);
   opacity: .55;
   mix-blend-mode: screen;
-  animation: orb-idle-spin 22s linear infinite;
-  animation-play-state: paused;
+  animation: filament-drift 6.4s ease-in-out infinite;
 }
+.norah-orb__filament--b {
+  top: 62%;
+  transform: translateY(-50%) rotate(11deg);
+  animation-duration: 5.1s;
+  animation-delay: -1.6s;
+  opacity: .4;
+}
+@keyframes filament-drift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
 .norah-orb__sheen {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: radial-gradient(60% 40% at 32% 20%, rgba(255,255,255,.35), transparent 60%);
+  background: radial-gradient(58% 38% at 30% 18%, rgba(255,255,255,.28), transparent 60%);
   opacity: .5;
   pointer-events: none;
 }
 
-@keyframes orb-idle-spin { to { transform: rotate(360deg); } }
-@keyframes orb-idle-breathe { 0%,100% { transform: scale(.97); opacity:.9; } 50% { transform: scale(1); opacity:1; } }
-@keyframes orb-listen-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-@keyframes orb-listen-halo { 0%,100% { opacity:.4; } 50% { opacity:.85; } }
-@keyframes orb-think-spin { to { transform: rotate(360deg); } }
-@keyframes orb-speak-pulse { 0%,100% { transform: scale(1); filter: blur(9px) saturate(1.15); } 50% { transform: scale(1.05); filter: blur(11px) saturate(1.4); } }
+@keyframes orb-idle-breathe { 0%,100% { transform: scale(.97); opacity:.92; } 50% { transform: scale(1); opacity:1; } }
+@keyframes orb-listen-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+@keyframes orb-speak-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045); } }
 @keyframes orb-summon-in { 0% { transform: scale(.15); opacity: 0; } 60% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes orb-dismiss-out { to { transform: scale(.15); opacity: 0; } }
 
+/* --- idle: extremely restrained lime highlight, near-dormant --- */
+.norah-orb[data-state="idle"] { --orb-hue: 82; --orb-sat: 22%; --orb-light: 40%; }
 .norah-orb[data-state="idle"] .norah-orb__glass { animation: orb-idle-breathe 6s ease-in-out infinite; }
-.norah-orb[data-state="idle"] .norah-orb__halo { opacity: .28; }
+.norah-orb[data-state="idle"] .norah-orb__halo { opacity: .16; }
+.norah-orb[data-state="idle"] .norah-orb__filament { opacity: .25; animation-duration: 9s; }
 
-.norah-orb[data-state="listening"] .norah-orb__glass { animation: orb-listen-pulse 1.6s ease-in-out infinite; }
-.norah-orb[data-state="listening"] .norah-orb__halo { animation: orb-listen-halo 1.6s ease-in-out infinite; }
-.norah-orb[data-state="listening"] .norah-orb__core { animation-play-state: running; animation-duration: 10s; opacity: .7; }
+/* --- summon: same restrained lime, the film forms as it scales in --- */
+.norah-orb[data-state="summon"] {
+  --orb-hue: 84; --orb-sat: 34%; --orb-light: 50%;
+  animation: orb-summon-in .5s cubic-bezier(.2,.9,.25,1) both;
+}
 
-.norah-orb[data-state="thinking"] .norah-orb__core { animation-play-state: running; animation-duration: 5.5s; opacity: .8; }
-.norah-orb[data-state="thinking"] .norah-orb__halo { opacity: .55; }
+/* --- listening: lime/chartreuse dominant, subtly reactive --- */
+.norah-orb[data-state="listening"] { --orb-hue: 80; --orb-sat: 68%; --orb-light: 58%; }
+.norah-orb[data-state="listening"] .norah-orb__glass { animation: orb-listen-pulse 1.7s ease-in-out infinite; }
+.norah-orb[data-state="listening"] .norah-orb__halo { opacity: .55; }
+.norah-orb[data-state="listening"] .norah-orb__filament { opacity: .8; animation-duration: 3.6s; }
 
-.norah-orb[data-state="speaking"] .norah-orb__glass { animation: orb-speak-pulse 1.4s ease-in-out infinite; }
-.norah-orb[data-state="speaking"] .norah-orb__core { animation-play-state: running; animation-duration: 4s; opacity: .85; }
-.norah-orb[data-state="speaking"] .norah-orb__halo { opacity: .6; }
+/* --- thinking: calmer, slower, cyan/green --- */
+.norah-orb[data-state="thinking"] { --orb-hue: 168; --orb-sat: 46%; --orb-light: 52%; }
+.norah-orb[data-state="thinking"] .norah-orb__halo { opacity: .42; }
+.norah-orb[data-state="thinking"] .norah-orb__filament { opacity: .6; animation-duration: 7.5s; }
 
-.norah-orb[data-state="summon"] { animation: orb-summon-in .5s cubic-bezier(.2,.9,.25,1) both; }
+/* --- speaking: warmer, warm white/gold — desaturated so gold never dominates --- */
+.norah-orb[data-state="speaking"] { --orb-hue: 42; --orb-sat: 26%; --orb-light: 76%; }
+.norah-orb[data-state="speaking"] .norah-orb__glass { animation: orb-speak-pulse 1.5s ease-in-out infinite; }
+.norah-orb[data-state="speaking"] .norah-orb__halo { opacity: .48; }
+.norah-orb[data-state="speaking"] .norah-orb__filament { opacity: .7; animation-duration: 4.6s; }
+
 .norah-orb[data-state="dismiss"] { animation: orb-dismiss-out .4s cubic-bezier(.4,0,1,1) both; }
+
+/* -------------------------------------------------------------------
+   Translucent living film. Fixed to the bottom of the viewport, sits
+   only under the primary orb instance (gated in NorahOrb.tsx). Highly
+   translucent, no hard rectangle edge — everything fades out via a
+   top mask, and the "waveform" is the animated crest sitting right at
+   that fade line, not a separate element floating above the film.
+------------------------------------------------------------------- */
+.norah-film {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: clamp(150px, 26vh, 300px);
+  pointer-events: none;
+  z-index: 30;
+  overflow: hidden;
+  opacity: 0;
+  animation: film-settle .55s cubic-bezier(.2,.9,.25,1) forwards;
+}
+.norah-orb[data-state="dismiss"] .norah-film { animation: film-dismiss .4s cubic-bezier(.4,0,1,1) forwards; }
+
+.norah-film__body {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top,
+    hsl(var(--orb-hue) var(--orb-sat) var(--orb-light) / .15) 0%,
+    hsl(calc(var(--orb-hue) + 24) var(--orb-sat) var(--orb-light) / .06) 45%,
+    transparent 100%);
+  filter: blur(26px);
+  mask-image: linear-gradient(to top, black 0%, transparent 92%);
+  -webkit-mask-image: linear-gradient(to top, black 0%, transparent 92%);
+}
+
+/* The waveform boundary: soft blurred crests animating at the top
+   edge of the film — this IS the boundary, not a separate layer. */
+.norah-film__crest {
+  position: absolute;
+  left: -12%;
+  width: 124%;
+  height: 44%;
+  border-radius: 46%;
+  filter: blur(28px);
+  animation: crest-rise 5s ease-in-out infinite;
+}
+.norah-film__crest--a {
+  bottom: -6%;
+  background: hsl(var(--orb-hue) var(--orb-sat) calc(var(--orb-light) + 8%) / .24);
+  animation-duration: 5.2s;
+}
+.norah-film__crest--b {
+  bottom: -2%;
+  left: 6%;
+  width: 104%;
+  background: hsl(calc(var(--orb-hue) + 30) calc(var(--orb-sat) - 8%) calc(var(--orb-light) + 18%) / .16);
+  animation-duration: 4.1s;
+  animation-delay: -1.7s;
+}
+.norah-film__crest--c {
+  bottom: 2%;
+  left: -18%;
+  width: 92%;
+  background: hsl(calc(var(--orb-hue) - 18) var(--orb-sat) calc(var(--orb-light) + 4%) / .13);
+  animation-duration: 6.4s;
+  animation-delay: -3.1s;
+}
+@keyframes crest-rise { 0%,100% { transform: translateY(0) scaleX(1); } 50% { transform: translateY(-7%) scaleX(1.04); } }
+@keyframes film-settle { from { opacity: 0; transform: translateY(8%); } to { opacity: 1; transform: translateY(0); } }
+@keyframes film-dismiss { to { opacity: 0; transform: translateY(5%); } }
+
+/* Listening reacts a little quicker/livelier; thinking stays calmest. */
+.norah-orb[data-state="listening"] .norah-film__crest--a { animation-duration: 3.3s; }
+.norah-orb[data-state="listening"] .norah-film__crest--b { animation-duration: 2.8s; }
+.norah-orb[data-state="thinking"] .norah-film__crest--a { animation-duration: 6.6s; }
+.norah-orb[data-state="thinking"] .norah-film__crest--b { animation-duration: 5.4s; }
+.norah-orb[data-state="speaking"] .norah-film__crest--a { animation-duration: 4.3s; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
-  .norah-orb__core { animation: none !important; }
+  .norah-orb__filament, .norah-film__crest { animation: none !important; }
 }
