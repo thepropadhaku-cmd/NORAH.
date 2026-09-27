@@ -73,6 +73,7 @@ export const prototypeTools: ToolRegistry = {
   list: () => [
     { id: "assistant-core", label: "Assistant core", status: "ready", description: "Intent framing, response shaping, and fallback reasoning." },
     { id: "memory", label: "Conversation memory", status: "ready", description: "Lightweight conversation continuity and preferences." },
+    { id: "hermes", label: "Hermes bridge (Termux)", status: "ready", description: "JSON-RPC/WebSocket connectivity check against a local Hermes agent, triggered by phrases like \"test Hermes connectivity\". Real tool execution beyond a ping is not yet confirmed against Hermes's actual API." },
     { id: "web", label: "Web research", status: "coming_soon", description: "Connect a user-approved web search provider." },
     { id: "calendar", label: "Calendar", status: "coming_soon", description: "Connect a calendar provider before scheduling anything." },
     { id: "voice", label: "Voice", status: "coming_soon", description: "Add speech input and output with explicit permissions." },
