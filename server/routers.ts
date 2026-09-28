@@ -100,7 +100,7 @@ export const appRouter = router({
       const context = userId ? await getUserContext(userId) : undefined;
       const memory = context?.contextNotes ? [context.contextNotes] : [];
       const history: AssistantMessage[] = input.history.map(item => ({ role: item.role, content: item.content }));
-      const toolExecutor = /test Hermes connectivity|test hermes|hermes connectivity/i.test(input.message) ? hermesToolExecutor : defaultToolExecutor;
+      const toolExecutor = /test Hermes connectivity|test hermes|hermes connectivity|\b(?:ask|tell|via)\s+hermes\b/i.test(input.message) ? hermesToolExecutor : defaultToolExecutor;
       const reply = await createAssistantReply(input.message, history, memory, toolExecutor);
       if (userId && !conversationId) conversationId = await createConversation(userId, input.message, reply.mode);
       if (userId && conversationId) {
