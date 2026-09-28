@@ -73,7 +73,7 @@ export const prototypeTools: ToolRegistry = {
   list: () => [
     { id: "assistant-core", label: "Assistant core", status: "ready", description: "Intent framing, response shaping, and fallback reasoning." },
     { id: "memory", label: "Conversation memory", status: "ready", description: "Lightweight conversation continuity and preferences." },
-    { id: "hermes", label: "Hermes bridge (Termux)", status: "ready", description: "JSON-RPC/WebSocket connectivity check against a local Hermes agent, triggered by phrases like \"test Hermes connectivity\". Real tool execution beyond a ping is not yet confirmed against Hermes's actual API." },
+    { id: "hermes", label: "Hermes bridge (Termux)", status: "ready", description: "Talks to a local Hermes agent over ACP (JSON-RPC/WebSocket). \"Test Hermes connectivity\" runs a handshake; \"ask Hermes to ...\" sends the request to Hermes. Hermes's own approval gate applies and NORAH never auto-approves. Wire-level method names are unverified until a live run." },
     { id: "web", label: "Web research", status: "coming_soon", description: "Connect a user-approved web search provider." },
     { id: "calendar", label: "Calendar", status: "coming_soon", description: "Connect a calendar provider before scheduling anything." },
     { id: "voice", label: "Voice", status: "coming_soon", description: "Add speech input and output with explicit permissions." },
@@ -164,16 +164,26 @@ export function fallbackReply(input: string, mode: AssistantMode): string {
   return `${opening[mode]}\n\nFor now, here’s the useful path: ${next[mode]}\n\nI’m running in local fallback mode because no live model response is available in this environment. Your request is still kept in the conversation so we can continue seamlessly when a provider is connected.`;
 }
 
+// Explicit user intent to hand a request to Hermes ("ask Hermes to ...",
+// "tell Hermes ...", "... via Hermes"). Hermes is only ever invoked on
+// this explicit trigger; NORAH (Gemini) still writes the final reply.
+const HERMES_PROMPT_TRIGGER = /\b(?:ask|tell|via)\s+hermes\b[:,]?\s*(?:to\s+)?/i;
+
 export async function createAssistantReply(input: string, history: AssistantMessage[], memory: string[] = [], toolExecutor: ToolExecutor = defaultToolExecutor): Promise<{ content: string; mode: AssistantMode; model: string; live: boolean }> {
   const mode = inferMode(input);
   const requestedTool = /test Hermes connectivity|test hermes|hermes connectivity/i.test(input)
     ? "hermes-connectivity"
-    : /calendar|schedule a meeting|browse the web|search online|web search/i.test(input)
-      ? (/calendar|schedule a meeting/i.test(input) ? "calendar" : "web")
-      : null;
+    : HERMES_PROMPT_TRIGGER.test(input)
+      ? "hermes-prompt"
+      : /calendar|schedule a meeting|browse the web|search online|web search/i.test(input)
+        ? (/calendar|schedule a meeting/i.test(input) ? "calendar" : "web")
+        : null;
   let toolContext = "";
   if (requestedTool) {
-    const toolStatus = await toolExecutor.execute(requestedTool, { query: input });
+    const toolInput = requestedTool === "hermes-prompt"
+      ? { query: input, prompt: input.replace(HERMES_PROMPT_TRIGGER, "").trim() }
+      : { query: input };
+    const toolStatus = await toolExecutor.execute(requestedTool, toolInput);
     if (!toolStatus.ok) return { content: `${fallbackReply(input, mode)}\n\nTool readiness: ${toolStatus.message}`, mode, model: "local-fallback", live: false };
     toolContext = `\nExternal execution result (verified by NORAH): ${toolStatus.message}`;
   }
