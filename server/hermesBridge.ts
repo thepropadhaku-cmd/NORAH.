@@ -1,186 +1,202 @@
-import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { ENV } from "./_core/env";
 import type { ToolExecutor } from "./assistantCore";
 
 /**
- * Bridge from NORAH Core to Hermes, the execution agent running on the
- * same device (Termux). Both run on the same loopback interface, so no
- * tunnel/relay is involved and nothing here assumes a remote server can
- * reach a phone's localhost.
+ * Bridge from NORAH Core to Hermes over ACP (Agent Client Protocol,
+ * JSON-RPC 2.0) using a local child process: `hermes acp`, speaking
+ * newline-delimited JSON on stdin/stdout. Both run as the same OS user on
+ * the same device (Termux), which is the trust boundary Hermes's own
+ * SECURITY.md defines for ACP ("local-IPC surfaces": OS-level access
+ * control, no network exposure). No port, token, tunnel or relay involved.
  *
- * PROTOCOL — what is confirmed vs. applied from the public spec
- * ------------------------------------------------------------
- * CONFIRMED from the installed Hermes source (screenshots of
- * ~/.hermes/hermes-agent):
- *   - Hermes implements ACP, the Agent Client Protocol (JSON-RPC 2.0):
- *     agent/acp_adapter/server.py imports acp.schema types
- *     (InitializeResponse, AuthenticateResponse, NewSessionResponse,
- *     PromptResponse, ...) and implements on_connect(conn) and
- *     authenticate(method_id, **kwargs).
- *   - `hermes serve` (default 127.0.0.1:9119) is documented by its own
- *     --help as "the JSON-RPC/WebSocket gateway".
- *   - SECURITY.md: local-IPC surfaces (ACP) are trusted via OS-level
- *     access control / loopback-only binds, not a password.
+ * WHY NOT ws://127.0.0.1:9119: the previous WebSocket version assumed the
+ * `hermes serve` gateway speaks ACP. The evidence does not support that.
+ * `hermes serve` is the dashboard/desktop gateway (its root page injects a
+ * session token for its own web UI, and the WebSocket route/handshake was
+ * never located), whereas acp_adapter/entry.py documents ACP as
+ * `hermes acp`. The gateway's protocol is unconfirmed, so it is not used.
  *
- * NOT READ FROM YOUR TERMINAL — applied from the public ACP spec, so
- * treat as unverified until a live run confirms them: the exact wire
- * method strings and param/result key names in ACP_METHOD and in the
- * request bodies below, and the shape of session/update notifications.
- * Every such literal is centralised here (env-overridable for the
- * method names) so a correction is a one-line change. A JSON-RPC
- * "method not found" / invalid-params error from Hermes is an honest
- * signal that one of them needs correcting, not a bridge bug; the
- * error text is passed back verbatim so it is visible.
+ * CONFIRMED from the installed acp package (terminal output):
+ *   - agent methods: initialize, authenticate, session/new, session/prompt,
+ *     session/cancel, session/load, ... ; client methods: session/update,
+ *     session/request_permission, fs/*, terminal/*; PROTOCOL_VERSION = 1
+ *   - request/response field names (camelCase aliases): InitializeRequest
+ *     {protocolVersion, clientCapabilities, clientInfo}; NewSessionRequest
+ *     {cwd, mcpServers}; NewSessionResponse {sessionId}; PromptRequest
+ *     {sessionId, prompt}; PromptResponse {stopReason}
  *
- * SECURITY: tool execution stays permission-gated by Hermes itself
- * (acp_adapter/permissions.py, edit_approval.py). This bridge never
- * auto-approves anything: if Hermes sends a request to us (which is how
- * ACP asks a client for permission), we answer with a JSON-RPC error
- * and report it, i.e. fail closed. Approval handling is deliberately
- * not implemented until its exact contract is verified.
+ * NOT CONFIRMED against a live Hermes (taken from the public ACP spec):
+ *   - `hermes acp` uses newline-delimited JSON framing on stdio
+ *   - the session/update payload discriminator ("sessionUpdate":
+ *     "agent_message_chunk" | "tool_call" | "tool_call_update")
+ *   - the shape of a permission request/response (options[].kind,
+ *     outcome: {outcome:"selected", optionId} | {outcome:"cancelled"})
+ * If a real run shows a mismatch, the error text is returned verbatim.
  *
- * No dependency added: uses Node 22's built-in global WebSocket.
+ * PERMISSIONS (fail closed): Hermes gates its own tools and asks the client
+ * via session/request_permission. This bridge answers that request only
+ * under a narrow policy: a one-time "allow_once" is selected ONLY when the
+ * tool's kind is in HERMES_APPROVE_KINDS (default empty = approve nothing)
+ * AND is one of the read-only kinds hard-coded below. Everything else is
+ * rejected. "allow_always" is never selected. fs/* and terminal/* client
+ * requests, and any unknown server request, are refused, and no client
+ * capabilities are advertised. Every decision is reported in the reply.
  */
 
-const ACP_METHOD = {
-  initialize: process.env.HERMES_ACP_METHOD_INITIALIZE?.trim() || "initialize",
-  newSession: process.env.HERMES_ACP_METHOD_NEW_SESSION?.trim() || "session/new",
-  prompt: process.env.HERMES_ACP_METHOD_PROMPT?.trim() || "session/prompt",
-} as const;
-
-const ACP_PROTOCOL_VERSION = 1; // UNCONFIRMED against installed acp package
-const OVERALL_TIMEOUT_MS = 25000;
+const ACP_PROTOCOL_VERSION = 1;
+const HANDSHAKE_TIMEOUT_MS = 20_000;
+const PROMPT_TIMEOUT_MS = 90_000; // an agent turn (model + tools) takes far longer than a handshake
+const APPROVABLE_KINDS = new Set(["read", "search"]); // hard ceiling, regardless of config
 
 type BridgeResult = { ok: boolean; message: string };
 type Rpc = (method: string, params: Record<string, unknown>) => Promise<any>;
+type Notes = { text: string[]; permissions: string[]; tools: Map<string, string>; refused: string[] };
 
-function collectText(value: unknown, out: string[], depth = 0) {
-  if (depth > 6 || value == null) return;
-  if (Array.isArray(value)) { value.forEach(v => collectText(v, out, depth + 1)); return; }
-  if (typeof value === "object") {
-    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      if (key.toLowerCase() === "text" && typeof v === "string") out.push(v);
-      else collectText(v, out, depth + 1);
-    }
-  }
+function approvedKinds(): Set<string> {
+  const configured = ENV.hermesApproveKinds.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
+  return new Set(configured.filter(k => APPROVABLE_KINDS.has(k)));
 }
 
-/** Opens one WebSocket, runs `flow`, always closes. Never throws. */
-function withHermesConnection(flow: (rpc: Rpc, notes: { text: string[]; declined: string[] }) => Promise<string>): Promise<BridgeResult> {
+function decidePermission(params: any, notes: Notes) {
+  const kind = String(params?.toolCall?.kind ?? "other").toLowerCase();
+  const title = String(params?.toolCall?.title ?? params?.toolCall?.toolCallId ?? "an action");
+  const options: any[] = Array.isArray(params?.options) ? params.options : [];
+  const allowOnce = options.find(o => o?.kind === "allow_once" && o?.optionId);
+  if (approvedKinds().has(kind) && allowOnce) {
+    notes.permissions.push(`approved once: ${title} (${kind})`);
+    return { outcome: { outcome: "selected", optionId: allowOnce.optionId } };
+  }
+  const reject = options.find(o => o?.kind === "reject_once" && o?.optionId);
+  notes.permissions.push(`declined: ${title} (${kind})`);
+  return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } };
+}
+
+function withHermesProcess(flow: (rpc: Rpc, notes: Notes) => Promise<string>, timeoutMs: number): Promise<BridgeResult> {
   return new Promise(resolve => {
-    const hermesUrl = ENV.hermesUrl.trim();
-    if (!hermesUrl) {
-      resolve({ ok: false, message: "Hermes is not configured. Set HERMES_URL to Hermes's ws:// address (e.g. ws://127.0.0.1:9119) in the NORAH Core environment." });
-      return;
-    }
-    if (!/^wss?:\/\//i.test(hermesUrl)) {
-      resolve({ ok: false, message: `HERMES_URL is "${hermesUrl}", which is not ws:// or wss://. Hermes serves JSON-RPC over WebSocket.` });
+    const [command, ...args] = ENV.hermesAcpCommand.trim().split(/\s+/).filter(Boolean);
+    if (!command) {
+      resolve({ ok: false, message: "Hermes is not configured. Set HERMES_ACP_COMMAND (default: \"hermes acp\") in the NORAH Core environment." });
       return;
     }
 
-    let socket: WebSocket;
-    try { socket = new WebSocket(hermesUrl); }
-    catch (error) {
-      resolve({ ok: false, message: `Could not open a WebSocket to Hermes: ${error instanceof Error ? error.message : "unknown error"}` });
-      return;
-    }
-
-    const pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-    const notes = { text: [] as string[], declined: [] as string[] };
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] }); // no shell: fixed argv only
+    const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+    const notes: Notes = { text: [], permissions: [], tools: new Map(), refused: [] };
+    let nextId = 1;
     let settled = false;
+    let stderrTail = "";
 
     const finish = (result: BridgeResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
-      pending.forEach(p => p.reject(new Error("connection closed")));
+      pending.forEach(p => p.reject(new Error("Hermes connection closed")));
       pending.clear();
-      try { socket.close(); } catch { /* already closed */ }
+      try { child.stdin.end(); } catch { /* already closed */ }
+      try { child.kill(); } catch { /* already exited */ }
       resolve(result);
     };
-    const deadline = setTimeout(() => finish({ ok: false, message: `Hermes did not complete within ${OVERALL_TIMEOUT_MS / 1000}s. Confirm "hermes serve" is running and HERMES_URL is correct.` }), OVERALL_TIMEOUT_MS);
+    const deadline = setTimeout(() => finish({ ok: false, message: `Hermes did not complete within ${timeoutMs / 1000}s.${stderrTail ? ` Last stderr: ${stderrTail.trim()}` : ""}` }), timeoutMs);
 
+    const write = (obj: unknown) => { try { child.stdin.write(JSON.stringify(obj) + "\n"); } catch { /* process gone; exit handler reports */ } };
     const rpc: Rpc = (method, params) => new Promise((res, rej) => {
-      const id = randomUUID();
+      const id = nextId++;
       pending.set(id, { resolve: res, reject: rej });
-      socket.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      write({ jsonrpc: "2.0", id, method, params });
     });
 
-    socket.addEventListener("open", () => {
-      flow(rpc, notes)
-        .then(message => finish({ ok: true, message }))
-        .catch(error => finish({ ok: false, message: error instanceof Error ? error.message : String(error) }));
-    });
-
-    socket.addEventListener("message", event => {
+    const handle = (line: string) => {
       let msg: any;
-      try { msg = JSON.parse(typeof event.data === "string" ? event.data : String(event.data)); } catch { return; }
+      try { msg = JSON.parse(line); } catch { return; } // non-JSON line (e.g. a startup warning): ignore
       if (!msg || typeof msg !== "object") return;
 
-      // Response to one of our requests.
-      if (msg.id != null && pending.has(msg.id) && msg.method === undefined) {
+      if (msg.id != null && msg.method === undefined && pending.has(msg.id)) { // response to us
         const p = pending.get(msg.id)!;
         pending.delete(msg.id);
         if (msg.error) p.reject(new Error(`Hermes RPC error${msg.error.code != null ? ` (${msg.error.code})` : ""}: ${msg.error.message ?? JSON.stringify(msg.error)}`));
         else p.resolve(msg.result);
         return;
       }
-      // Server-initiated request (has id + method): ACP uses these for
-      // permission prompts. Fail closed — never auto-approve.
-      if (msg.id != null && typeof msg.method === "string") {
-        notes.declined.push(msg.method);
-        try { socket.send(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `NORAH bridge does not handle server-initiated "${msg.method}"; declined.` } })); } catch { /* socket closing */ }
+      if (msg.id != null && typeof msg.method === "string") { // request from Hermes to us
+        if (msg.method === "session/request_permission") {
+          write({ jsonrpc: "2.0", id: msg.id, result: decidePermission(msg.params, notes) });
+        } else {
+          notes.refused.push(msg.method);
+          write({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `NORAH does not provide "${msg.method}".` } });
+        }
         return;
       }
-      // Notification (method, no id): collect streamed text from session updates.
-      if (typeof msg.method === "string" && /update/i.test(msg.method)) collectText(msg.params, notes.text);
-    });
+      if (msg.method === "session/update") { // notification
+        const update = msg.params?.update ?? {};
+        const type = update.sessionUpdate;
+        if (type === undefined || type === "agent_message_chunk") {
+          if (typeof update.content?.text === "string") notes.text.push(update.content.text);
+        } else if (type === "tool_call" || type === "tool_call_update") {
+          const id = String(update.toolCallId ?? "tool");
+          const prev = notes.tools.get(id);
+          const title = update.title ?? prev?.split(": ")[0] ?? id;
+          notes.tools.set(id, `${title}: ${update.status ?? prev?.split(": ")[1] ?? "unknown"}`);
+        }
+      }
+    };
 
-    socket.addEventListener("error", () => finish({ ok: false, message: "Hermes could not be reached over WebSocket. Confirm `hermes serve --port <port>` is running in Termux and HERMES_URL matches it." }));
-    socket.addEventListener("close", event => {
-      if (!settled) finish({ ok: false, message: `Hermes closed the connection before finishing (code ${event.code}).` });
+    let buffer = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      let i: number;
+      while ((i = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, i).trim();
+        buffer = buffer.slice(i + 1);
+        if (line) handle(line);
+      }
     });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderrTail = (stderrTail + chunk).slice(-500); });
+    child.on("error", error => finish({ ok: false, message: `Could not start "${ENV.hermesAcpCommand}": ${error.message}. Is Hermes installed and on PATH for the NORAH Core process?` }));
+    child.on("exit", code => finish({ ok: false, message: `Hermes exited (code ${code}) before finishing.${stderrTail ? ` Last stderr: ${stderrTail.trim()}` : ""}` }));
+
+    flow(rpc, notes)
+      .then(message => finish({ ok: true, message }))
+      .catch(error => finish({ ok: false, message: error instanceof Error ? error.message : String(error) }));
   });
 }
 
-async function initialize(rpc: Rpc) {
-  return rpc(ACP_METHOD.initialize, { protocolVersion: ACP_PROTOCOL_VERSION, clientCapabilities: {} });
+function initialize(rpc: Rpc) {
+  // No fs/terminal client capabilities are advertised: Hermes uses its own tools.
+  return rpc("initialize", { protocolVersion: ACP_PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: "norah-core", version: "0.1" } });
 }
 
-/** Connectivity check: a real ACP `initialize` handshake, nothing more. */
+/** Connectivity check: a real ACP initialize handshake with a freshly started `hermes acp`. */
 function pingHermes(): Promise<BridgeResult> {
-  return withHermesConnection(async rpc => {
+  return withHermesProcess(async rpc => {
     const result = await initialize(rpc);
-    const name = result?.agentInfo?.name ?? result?.agent?.name;
+    const name = result?.agentInfo?.name;
     return `Hermes completed an ACP initialize handshake${name ? ` (${name})` : ""}.`;
-  });
+  }, HANDSHAKE_TIMEOUT_MS);
 }
 
-/** One conversational turn through Hermes: initialize → session/new → session/prompt. */
+/** One turn through Hermes: initialize -> session/new -> session/prompt. */
 function promptHermes(promptText: string): Promise<BridgeResult> {
-  return withHermesConnection(async (rpc, notes) => {
+  return withHermesProcess(async (rpc, notes) => {
     const init = await initialize(rpc);
     const authMethods = Array.isArray(init?.authMethods) ? init.authMethods.map((m: any) => m?.id ?? String(m)) : [];
     let sessionId: string | undefined;
     try {
-      const session = await rpc(ACP_METHOD.newSession, { cwd: process.cwd(), mcpServers: [] });
-      sessionId = session?.sessionId ?? session?.session_id;
+      sessionId = (await rpc("session/new", { cwd: process.cwd(), mcpServers: [] }))?.sessionId;
     } catch (error) {
       const hint = authMethods.length ? ` Hermes advertised auth methods [${authMethods.join(", ")}]; authenticate is not wired in this bridge.` : "";
       throw new Error(`${error instanceof Error ? error.message : String(error)}${hint}`);
     }
-    if (!sessionId) throw new Error("Hermes did not return a session id from session/new.");
+    if (!sessionId) throw new Error("Hermes did not return a sessionId from session/new.");
 
-    const result = await rpc(ACP_METHOD.prompt, { sessionId, prompt: [{ type: "text", text: promptText }] });
-    let reply = notes.text.join("").trim();
-    if (!reply) {
-      const fallback: string[] = [];
-      collectText(result, fallback);
-      reply = fallback.join("").trim() || `Hermes finished (${JSON.stringify(result)}) without returning text.`;
-    }
-    if (notes.declined.length) reply += `\n\n(Hermes asked for approval via ${[...new Set(notes.declined)].join(", ")}; NORAH declined because approval handling is not wired yet.)`;
+    const result = await rpc("session/prompt", { sessionId, prompt: [{ type: "text", text: promptText }] });
+    let reply = notes.text.join("").trim() || `Hermes finished (stop reason: ${result?.stopReason ?? "unknown"}) without returning text.`;
+    const activity = [...notes.permissions, ...notes.tools.values(), ...[...new Set(notes.refused)].map(m => `refused ${m}`)];
+    if (activity.length) reply += `\n\n[Hermes activity: ${activity.join("; ")}]`;
     return reply;
-  });
+  }, PROMPT_TIMEOUT_MS);
 }
 
 export const hermesToolExecutor: ToolExecutor = {
