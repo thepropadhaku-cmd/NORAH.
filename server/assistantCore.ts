@@ -73,7 +73,7 @@ export const prototypeTools: ToolRegistry = {
   list: () => [
     { id: "assistant-core", label: "Assistant core", status: "ready", description: "Intent framing, response shaping, and fallback reasoning." },
     { id: "memory", label: "Conversation memory", status: "ready", description: "Lightweight conversation continuity and preferences." },
-    { id: "hermes", label: "Hermes bridge (Termux)", status: "ready", description: "Talks to a local Hermes agent over ACP (JSON-RPC/WebSocket). \"Test Hermes connectivity\" runs a handshake; \"ask Hermes to ...\" sends the request to Hermes. Hermes's own approval gate applies and NORAH never auto-approves. Wire-level method names are unverified until a live run." },
+    { id: "hermes", label: "Hermes bridge (Termux)", status: "ready", description: "Talks to a local Hermes agent over ACP (JSON-RPC over the \"hermes acp\" process's stdio). \"Test Hermes connectivity\" runs a handshake; \"ask Hermes to ...\" sends the request to Hermes. Hermes's own approval gate applies and NORAH only ever auto-approves read-only actions you've explicitly allowed via HERMES_APPROVE_KINDS. Wire-level method names are unverified against your installed Hermes until a live run." },
     { id: "web", label: "Web research", status: "coming_soon", description: "Connect a user-approved web search provider." },
     { id: "calendar", label: "Calendar", status: "coming_soon", description: "Connect a calendar provider before scheduling anything." },
     { id: "voice", label: "Voice", status: "coming_soon", description: "Add speech input and output with explicit permissions." },
