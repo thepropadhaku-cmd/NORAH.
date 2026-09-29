@@ -1,110 +1,94 @@
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "./_core/env";
 import { createAssistantReply } from "./assistantCore";
 import { hermesToolExecutor } from "./hermesBridge";
 
-type Handler = (event: any) => void;
-
 /**
- * Minimal in-memory stand-in for Node's global WebSocket, acting as a fake
- * Hermes ACP server. It proves the bridge's protocol behaviour (call order,
- * streamed-text collection, fail-closed approvals). It does NOT prove that
- * real Hermes accepts these method names/params — that needs a live run.
+ * These tests spawn a real child process (server/hermesBridge.fixtures/*)
+ * speaking newline-delimited JSON-RPC over stdio, exercising the real
+ * bridge's framing, permission policy, and error handling end to end.
+ * They prove the bridge's own logic is correct. They do NOT prove real
+ * Hermes accepts the same method names/params — only a live run against
+ * the installed `hermes acp` can confirm that.
  */
-function installFakeHermes(script: (msg: any, reply: (m: unknown) => void) => void) {
-  const received: any[] = [];
-  class FakeWebSocket {
-    private handlers: Record<string, Handler[]> = {};
-    constructor(public url: string) {
-      setTimeout(() => this.emit("open", {}), 0);
-    }
-    addEventListener(type: string, handler: Handler) {
-      (this.handlers[type] ??= []).push(handler);
-    }
-    private emit(type: string, event: unknown) {
-      (this.handlers[type] ?? []).forEach(h => h(event));
-    }
-    send(raw: string) {
-      const msg = JSON.parse(raw);
-      received.push(msg);
-      script(msg, m => setTimeout(() => this.emit("message", { data: JSON.stringify(m) }), 0));
-    }
-    close() {
-      this.emit("close", { code: 1000 });
-    }
-  }
-  vi.stubGlobal("WebSocket", FakeWebSocket);
-  return received;
-}
+const fixturesDir = path.dirname(fileURLToPath(import.meta.url)) + "/hermesBridge.fixtures";
+const fakeAgent = `${process.execPath} ${fixturesDir}/fakeAcpAgent.mjs`;
+const fakeExitAgent = `${process.execPath} ${fixturesDir}/fakeExitAgent.mjs`;
 
 describe("Hermes bridge", () => {
   afterEach(() => {
-    ENV.hermesUrl = "";
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it("rejects an http:// HERMES_URL with a clear error", async () => {
-    ENV.hermesUrl = "http://127.0.0.1:9119";
-    const result = await hermesToolExecutor.execute("hermes-connectivity", { query: "test hermes" });
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain("ws://");
+    ENV.hermesAcpCommand = "hermes acp";
+    ENV.hermesApproveKinds = "";
   });
 
   it("connectivity check performs an ACP initialize handshake", async () => {
-    ENV.hermesUrl = "ws://127.0.0.1:9119";
-    const received = installFakeHermes((msg, reply) => {
-      if (msg.method === "initialize") reply({ jsonrpc: "2.0", id: msg.id, result: { agentInfo: { name: "hermes" }, authMethods: [] } });
-    });
+    ENV.hermesAcpCommand = fakeAgent;
+    const result = await hermesToolExecutor.execute("hermes-connectivity", {});
+    expect(result).toEqual({ ok: true, message: "Hermes completed an ACP initialize handshake (fake-hermes)." });
+  }, 10000);
 
-    const result = await hermesToolExecutor.execute("hermes-connectivity", { query: "Test Hermes connectivity" });
-
-    expect(received.map(m => m.method)).toEqual(["initialize"]);
-    expect(result.ok).toBe(true);
-    expect(result.message).toContain("initialize handshake");
-  });
-
-  it("hermes-prompt runs initialize -> session/new -> session/prompt and returns streamed text", async () => {
-    ENV.hermesUrl = "ws://127.0.0.1:9119";
-    const received = installFakeHermes((msg, reply) => {
-      if (msg.method === "initialize") reply({ jsonrpc: "2.0", id: msg.id, result: { authMethods: [] } });
-      if (msg.method === "session/new") reply({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } });
-      if (msg.method === "session/prompt") {
-        reply({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { content: { type: "text", text: "pong" } } } });
-        reply({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } });
-      }
-    });
-
+  it("hermes-prompt runs initialize -> session/new -> session/prompt and returns streamed text, ignoring non-JSON stdout lines", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
     const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "say pong" });
-
-    expect(received.map(m => m.method)).toEqual(["initialize", "session/new", "session/prompt"]);
-    expect(received[2].params).toEqual({ sessionId: "s1", prompt: [{ type: "text", text: "say pong" }] });
     expect(result).toEqual({ ok: true, message: "pong" });
-  });
+  }, 10000);
 
-  it("fails closed: a server-initiated approval request is declined, never approved", async () => {
-    ENV.hermesUrl = "ws://127.0.0.1:9119";
-    const received = installFakeHermes((msg, reply) => {
-      if (msg.method === "initialize") reply({ jsonrpc: "2.0", id: msg.id, result: {} });
-      if (msg.method === "session/new") reply({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } });
-      if (msg.method === "session/prompt") {
-        reply({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: {} });
-        reply({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } });
-      }
-    });
+  it("fails closed by default: a read-tool permission request is declined when nothing is approved", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
+    ENV.hermesApproveKinds = "";
+    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "read the file" });
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("permission denied");
+    expect(result.message).toContain("declined: Read file (read)");
+    expect(result.message).not.toContain("nonce-42");
+  }, 10000);
 
-    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "do something risky" });
+  it("approves a read permission exactly once (never allow_always) when HERMES_APPROVE_KINDS=read", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
+    ENV.hermesApproveKinds = "read";
+    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "read the file" });
+    expect(result.message).toContain("contents: nonce-42");
+    expect(result.message).toContain("approved once: Read file (read)");
+    expect(result.message).toContain("Read file: completed");
+  }, 10000);
 
-    const permissionReply = received.find(m => m.id === "perm-1");
-    expect(permissionReply?.error).toBeDefined();
-    expect(permissionReply?.result).toBeUndefined();
-    expect(result.message).toContain("declined");
-  });
+  it("keeps an 'edit' tool declined even if configured — only read/search are ever honored", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
+    ENV.hermesApproveKinds = "edit,execute";
+    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "edit the file" });
+    expect(result.message).toContain("permission denied");
+    expect(result.message).toContain("declined: Read file (edit)");
+  }, 10000);
 
-  it("refuses to send an empty hermes-prompt", async () => {
-    ENV.hermesUrl = "ws://127.0.0.1:9119";
-    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "   " });
+  it("refuses server-initiated fs/* requests (no client capabilities are granted)", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
+    ENV.hermesApproveKinds = "read";
+    const result = await hermesToolExecutor.execute("hermes-prompt", { prompt: "fs please" });
+    expect(result.message).toContain("fs answer: refused");
+    expect(result.message).toContain("refused fs/read_text_file");
+  }, 10000);
+
+  it("reports a clear error when the configured command does not exist", async () => {
+    ENV.hermesAcpCommand = "definitely-not-a-real-command acp";
+    const result = await hermesToolExecutor.execute("hermes-connectivity", {});
     expect(result.ok).toBe(false);
+    expect(result.message).toContain("Could not start");
+  }, 10000);
+
+  it("surfaces the stderr tail when the process exits before finishing", async () => {
+    ENV.hermesAcpCommand = fakeExitAgent;
+    const result = await hermesToolExecutor.execute("hermes-connectivity", {});
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("exited (code 3)");
+    expect(result.message).toContain("boom: not logged in");
+  }, 10000);
+
+  it("refuses an empty hermes-prompt and an unsupported tool id without spawning anything", async () => {
+    ENV.hermesAcpCommand = fakeAgent;
+    expect((await hermesToolExecutor.execute("hermes-prompt", { prompt: "   " })).ok).toBe(false);
+    expect((await hermesToolExecutor.execute("shell", {})).ok).toBe(false);
   });
 
   it("returns the Hermes result to the assistant flow", async () => {
@@ -114,7 +98,6 @@ describe("Hermes bridge", () => {
       [],
       { execute: async () => ({ ok: true, message: "Hermes connectivity confirmed." }) },
     );
-
     expect(result.content).toContain("Hermes connectivity confirmed.");
   });
 
