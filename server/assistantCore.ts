@@ -1,3 +1,4 @@
+import { ENV } from "./_core/env";
 import { invokeGeminiLLM } from "./_core/llm";
 
 export type AssistantMode = "plan" | "write" | "learn" | "organize" | "troubleshoot" | "general";
@@ -194,12 +195,22 @@ export async function createAssistantReply(input: string, history: AssistantMess
     { role: "user", content: input },
   ];
 
+  // Not a new fallback system — the same fallbackReply() as before. The only
+  // change is that WHY the live call failed is now captured and surfaced
+  // (redacted) instead of being silently swallowed into a server-only
+  // console.warn, so the real cause is visible without needing server logs.
+  let providerErrorReason: string | null = null;
   try {
     const response = await managedModelProvider.complete(messages);
     if (response.content) return { content: response.content, mode, model: response.model, live: response.live };
   } catch (error) {
-    console.warn("[AssistantCore] Falling back after provider error", error instanceof Error ? error.message : error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    // Gemini's API key travels as a URL query param, so defensively strip any
+    // occurrence of it from the error text before it can reach the user.
+    providerErrorReason = ENV.geminiApiKey ? rawMessage.split(ENV.geminiApiKey).join("<redacted>") : rawMessage;
+    console.warn("[AssistantCore] Falling back after provider error", providerErrorReason);
   }
 
-  return { content: `${fallbackReply(input, mode)}${toolContext ? `\n\n${toolContext.trim()}` : ""}`, mode, model: "local-fallback", live: false };
+  const reasonLine = providerErrorReason ? `\n\n[Live model unavailable: ${providerErrorReason}]` : "";
+  return { content: `${fallbackReply(input, mode)}${toolContext ? `\n\n${toolContext.trim()}` : ""}${reasonLine}`, mode, model: "local-fallback", live: false };
 }
