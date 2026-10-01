@@ -86,6 +86,9 @@ export default function Home() {
     if (phase === "composing") return "listening";
     return "idle";
   }, [entered, voiceStatus, isThinking, phase]);
+  // The aura (NorahOrb's `speaking` prop) is driven ONLY by this explicit
+  // check — never by `phase`/`orbState`, so typing/composing never triggers it.
+  const auraActive = voiceStatus === "speaking";
 
   const stopCurrentSpeech = () => { speechController.stop(); setSpeakingMessage(null); };
 
@@ -171,7 +174,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-[var(--n-bg)] text-[var(--n-text)]" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--n-border-soft)] px-4 md:px-6">
         <div className="flex items-center gap-2.5">
-          <NorahOrb state={orbState} size={26} />
+          <NorahOrb state={orbState} size={26} speaking={auraActive} />
           <span className="font-display text-[15px] tracking-[-0.02em]">Norah</span>
           <span className={cn("status-dot ml-1", !liveStatus && "status-dot--idle")} title={liveStatus ? "Core ready" : "Fallback mode"} />
         </div>
