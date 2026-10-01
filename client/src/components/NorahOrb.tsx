@@ -4,33 +4,39 @@ export type OrbState = "idle" | "summon" | "listening" | "thinking" | "speaking"
 
 /**
  * NORAH's summoned presence — a small black glass orb with thin
- * luminous filaments, plus a translucent "living film" that gently
- * rises from the bottom of the viewport while she's actively engaged.
+ * luminous filaments, plus a translucent "living film" (the ambient
+ * aura) that rises from the bottom of the viewport.
  *
- * Pure CSS state machine (see .norah-orb / .norah-film rules in
- * index.css); this component only chooses the state and size, so it
- * stays cheap to render inline wherever presence needs to be shown.
+ * `state` drives only the small orb's own color/filament/halo — it is
+ * allowed to reflect composing/thinking/etc. as a subtle local tint.
  *
- * The film only appears for the larger, "primary" orb instance (the
- * one whose state actually reflects the live conversation) — small
- * decorative orb instances (chat message avatars, list icons) stay
- * exactly as before and never spawn it, so multiple orb instances on
- * screen at once never produce duplicate overlays.
+ * `speaking` is a SEPARATE, explicit flag that drives the aura (the
+ * big film). It must be true only while assistant speech/TTS audio is
+ * actually playing. Nothing else may gate the aura: not keyboard
+ * focus, not textarea/input state, not a generic "active" state, and
+ * not `state` itself — composing text sets `state="listening"` for
+ * the small orb's tint, and that alone must never show the aura.
+ * Callers that don't pass `speaking` get no aura at all, so every
+ * existing decorative orb instance (message avatars, list icons)
+ * stays exactly as before by default.
  */
 const FILM_ELIGIBLE_MIN_SIZE = 24;
 
 export function NorahOrb({
   state,
   size = 44,
+  speaking = false,
   className,
   onAnimationEnd,
 }: {
   state: OrbState;
   size?: number;
+  /** True only while assistant speech/TTS audio is actually playing. Drives the aura exclusively. */
+  speaking?: boolean;
   className?: string;
   onAnimationEnd?: () => void;
 }) {
-  const showFilm = size >= FILM_ELIGIBLE_MIN_SIZE && state !== "idle";
+  const showFilm = size >= FILM_ELIGIBLE_MIN_SIZE && speaking;
 
   return (
     <div
