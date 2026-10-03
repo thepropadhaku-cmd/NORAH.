@@ -223,10 +223,10 @@ const assertApiKey = () => {
   }
 };
 
-// gemini-2.5-flash was retired (404 NOT_FOUND). gemini-3-flash-preview is the
-// current default flash model per Google's own Gemini API docs and Vertex AI
-// model reference as of this change.
-const GEMINI_MODEL = "gemini-3-flash-preview";
+// gemini-2.5-flash was retired (404 NOT_FOUND). gemini-3.8-flash is the
+// current GA Gemini Flash model (launched 2026-09-02), confirmed via
+// Google Cloud's own model docs.
+const GEMINI_MODEL = "gemini-3.8-flash";
 
 const assertGeminiApiKey = () => {
   if (!ENV.geminiApiKey) {
