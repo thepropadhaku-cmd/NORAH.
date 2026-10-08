@@ -34,6 +34,7 @@
 
 * { border-color: var(--n-border); }
 html, body { height: 100%; }
+.norah-app-shell { height: 100vh; height: 100dvh; overflow: hidden; }
 body {
   margin: 0;
   min-width: 320px;

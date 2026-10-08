@@ -193,7 +193,7 @@ function promptHermes(promptText: string): Promise<BridgeResult> {
 
     const result = await rpc("session/prompt", { sessionId, prompt: [{ type: "text", text: promptText }] });
     let reply = notes.text.join("").trim() || `Hermes finished (stop reason: ${result?.stopReason ?? "unknown"}) without returning text.`;
-    const activity = [...notes.permissions, ...notes.tools.values(), ...[...new Set(notes.refused)].map(m => `refused ${m}`)];
+    const activity = [...notes.permissions, ...Array.from(notes.tools.values()), ...Array.from(new Set(notes.refused), m => `refused ${m}`)];
     if (activity.length) reply += `\n\n[Hermes activity: ${activity.join("; ")}]`;
     return reply;
   }, PROMPT_TIMEOUT_MS);

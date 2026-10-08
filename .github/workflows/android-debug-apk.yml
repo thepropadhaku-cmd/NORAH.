@@ -32,10 +32,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Apply NORAH auth patch
-        run: unzip -o norah-auth-patch.zip
+      - name: Validate public OAuth build configuration
+        env:
+          VITE_APP_ID: ${{ vars.VITE_APP_ID }}
+          VITE_OAUTH_PORTAL_URL: ${{ vars.VITE_OAUTH_PORTAL_URL }}
+        run: |
+          test -n "$VITE_APP_ID" || { echo "::error::Set the VITE_APP_ID Actions repository variable before building."; exit 1; }
+          test -n "$VITE_OAUTH_PORTAL_URL" || { echo "::error::Set the VITE_OAUTH_PORTAL_URL Actions repository variable before building."; exit 1; }
 
       - name: Build web app
+        env:
+          VITE_APP_ID: ${{ vars.VITE_APP_ID }}
+          VITE_OAUTH_PORTAL_URL: ${{ vars.VITE_OAUTH_PORTAL_URL }}
         run: pnpm build
 
       - name: Sync Capacitor Android project

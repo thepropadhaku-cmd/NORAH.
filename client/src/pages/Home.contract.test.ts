@@ -35,4 +35,10 @@ describe("Norah workspace contract", () => {
     expect(source).toContain("localStorage.setItem");
     expect(source).toContain("assistant.conversations.useQuery");
   });
+
+  it("exposes the existing OAuth sign-in flow from the primary header", () => {
+    expect(source).toContain('onClick={() => startLogin()}');
+    expect(source).toContain('aria-label="Sign in"');
+    expect(source).not.toContain("Voice input (not yet connected)");
+  });
 });

@@ -3,7 +3,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { Streamdown } from "streamdown";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Calendar, Check, CircleHelp, Clock, Compass, Copy, History, Leaf, LogIn, Mic, Plus, Sparkles, SquarePen, Volume2, X, Zap } from "lucide-react";
+import { ArrowUp, Calendar, Check, CircleHelp, Clock, Compass, Copy, History, Leaf, LogIn, Plus, Sparkles, SquarePen, Volume2, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -73,7 +73,10 @@ export default function Home() {
   useEffect(() => { localStorage.setItem("norah-demo-messages", JSON.stringify(messages)); }, [messages]);
   useEffect(() => { if (context.data?.contextNotes !== undefined) setContextDraft(context.data.contextNotes || ""); }, [context.data?.contextNotes]);
   useEffect(() => { if (serverMessages.data?.length) setMessages(serverMessages.data.map(message => ({ role: message.role, content: message.content, mode: message.mode || undefined, live: message.role === "assistant" }))); }, [serverMessages.data]);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, isThinking]);
+  useEffect(() => {
+    if (messages.length <= 1 && !isThinking) return;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, isThinking]);
   useEffect(() => { const t = window.setTimeout(() => setEntered(true), 60); return () => window.clearTimeout(t); }, []);
 
   const userName = user?.name?.split(" ")[0] || "there";
@@ -171,17 +174,18 @@ export default function Home() {
   const completedToday = useMemo(() => (tasksQuery.data || []).filter(task => task.status === "completed").slice(0, 6), [tasksQuery.data]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--n-bg)] text-[var(--n-text)]" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+    <div className="norah-app-shell flex flex-col bg-[var(--n-bg)] text-[var(--n-text)]" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--n-border-soft)] px-4 md:px-6">
         <div className="flex items-center gap-2.5">
           <NorahOrb state={orbState} size={26} speaking={auraActive} />
           <span className="font-display text-[15px] tracking-[-0.02em]">Norah</span>
-          <span className={cn("status-dot ml-1", !liveStatus && "status-dot--idle")} title={liveStatus ? "Core ready" : "Fallback mode"} />
+          <span role="status" aria-label={liveStatus ? "Assistant core ready" : "Assistant core unavailable; fallback mode"} className={cn("status-dot ml-1", !liveStatus && "status-dot--idle")} title={liveStatus ? "Core ready" : "Fallback mode"} />
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={clearConversation} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)]" aria-label="New conversation" title="New conversation"><Plus className="size-4" /></button>
-          {isAuthenticated && <button onClick={() => setHistoryOpen(true)} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)]" aria-label="Conversation history" title="History"><History className="size-4" /></button>}
-          <button onClick={() => setPanelOpen(true)} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)]" aria-label="Memory and capabilities" title="Memory & capabilities"><Sparkles className="size-4" /></button>
+          {!authLoading && !isAuthenticated && <button type="button" onClick={() => startLogin()} className="mr-1 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-[var(--n-border)] px-3 text-[11px] font-semibold text-[var(--n-text-dim)] transition-colors hover:border-[rgba(156,123,255,0.4)] hover:bg-white/[0.045] hover:text-[var(--n-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--n-violet-soft)]" aria-label="Sign in" title="Sign in"><LogIn className="size-3.5" /><span>Sign in</span></button>}
+          <button type="button" onClick={clearConversation} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--n-violet-soft)]" aria-label="New conversation" title="New conversation"><Plus className="size-4" /></button>
+          {isAuthenticated && <button type="button" onClick={() => setHistoryOpen(true)} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--n-violet-soft)]" aria-label="Conversation history" title="History"><History className="size-4" /></button>}
+          <button type="button" onClick={() => setPanelOpen(true)} className="flex size-9 items-center justify-center rounded-full text-[var(--n-text-dim)] transition-colors hover:bg-white/5 hover:text-[var(--n-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--n-violet-soft)]" aria-label="Memory and capabilities" title="Memory & capabilities"><Sparkles className="size-4" /></button>
         </div>
       </header>
 
@@ -191,7 +195,7 @@ export default function Home() {
           <RailButton icon={Calendar} label="Your Day" active={view === "day"} onClick={() => setView("day")} />
         </nav>
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {view === "chat" ? (
             <ChatSurface
               messages={messages}
@@ -225,7 +229,7 @@ export default function Home() {
         </main>
       </div>
 
-      <nav className="flex h-[64px] shrink-0 items-center justify-around border-t border-[var(--n-border-soft)] bg-[var(--n-bg)] md:hidden">
+      <nav aria-label="Primary navigation" className="flex h-[64px] shrink-0 items-center justify-around border-t border-[var(--n-border-soft)] bg-[var(--n-bg)] md:hidden">
         <TabBarButton icon={Sparkles} label="Norah" active={view === "chat"} onClick={() => setView("chat")} />
         <TabBarButton icon={Calendar} label="Your Day" active={view === "day"} onClick={() => setView("day")} />
       </nav>
@@ -289,7 +293,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
   copied: number | null;
   speakingMessage: number | null;
   voiceStatus: SpeechStatus;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   onInputChange: (value: string) => void;
   onSend: (value?: string) => void;
@@ -298,7 +302,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
   speak: { isPending: boolean };
 }) {
   return (
-    <section className="relative flex min-w-0 flex-1 flex-col">
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div ref={scrollRef} className="chat-scroll flex-1 overflow-y-auto px-5 pb-44 pt-8 md:px-10 md:pt-12 lg:px-[clamp(40px,7vw,120px)]">
         <div className="mx-auto max-w-[680px]">
           {messages.length === 1 && (
@@ -306,7 +310,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
               <p className="eyebrow">{authLoading ? "Preparing your workspace" : `Good to see you, ${userName}`}</p>
               <h1 className="mt-3 max-w-[540px] font-display text-[clamp(2rem,4.4vw,3.4rem)] leading-[1.02] tracking-[-0.03em] text-[var(--n-text)]">What's on your mind?</h1>
               <p className="mt-5 max-w-[460px] text-[14px] leading-6 text-[var(--n-text-dim)]">Bring a question, a half-formed idea, or a task you keep postponing.</p>
-              <div className="mt-7 grid gap-2 sm:grid-cols-2">
+              <div role="group" aria-label="Start with a mode" className="mt-7 grid gap-2 sm:grid-cols-2">
                 {starterPrompts.map(item => (
                   <button key={item.eyebrow} onClick={() => onSend(item.prompt)} disabled={isThinking} className="group rounded-2xl border border-[var(--n-border)] bg-white/[0.025] p-3.5 text-left transition-colors hover:border-[rgba(156,123,255,0.35)] hover:bg-white/[0.045]">
                     <div className="flex items-center gap-2"><item.icon className="size-3.5 text-[var(--n-violet-soft)]" /><span className="eyebrow">{item.eyebrow}</span></div>
@@ -361,8 +365,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-[var(--n-bg)] via-[var(--n-bg)]/95 to-transparent px-5 pb-5 pt-14">
         <form onSubmit={e => { e.preventDefault(); onSend(); }} className="pointer-events-auto flex w-full max-w-[640px] items-end gap-2 rounded-[20px] border border-[var(--n-border)] bg-white/[0.035] p-2 shadow-[0_10px_30px_rgba(6,5,10,0.45)] backdrop-blur focus-within:border-[rgba(156,123,255,0.45)] focus-within:ring-4 focus-within:ring-[rgba(124,77,255,0.14)]">
-          <Textarea value={input} onChange={e => onInputChange(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} placeholder="Ask Norah anything…" className="min-h-[42px] max-h-28 resize-none border-0 bg-transparent px-3 py-2.5 text-sm text-[var(--n-text)] shadow-none placeholder:text-[var(--n-text-faint)] focus-visible:ring-0" rows={1} aria-label="Message Norah" />
-          <Button type="button" variant="ghost" size="icon" className="mb-0.5 hidden rounded-full text-[var(--n-text-dim)] hover:bg-white/5 sm:flex" aria-label="Voice input (not yet connected)" title="Voice input isn't wired to the assistant core yet"><Mic className="size-4" /></Button>
+          <Textarea value={input} onChange={e => onInputChange(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }} placeholder="Ask Norah anything…" className="min-h-[42px] max-h-28 resize-none border-0 bg-transparent px-3 py-2.5 text-sm text-[var(--n-text)] shadow-none placeholder:text-[var(--n-text-faint)] focus-visible:ring-0" rows={1} aria-label="Message Norah" enterKeyHint="send" />
           <div className="mb-1 mr-1 hidden text-[10px] text-[var(--n-text-faint)] sm:block">{voiceStatus === "loading" ? "Preparing Norah’s voice…" : voiceStatus === "speaking" ? "Norah is speaking" : voiceStatus === "fallback" ? "Browser voice fallback" : voiceStatus === "error" ? "Voice unavailable · try replay" : phase === "composing" ? "Ready when you are" : phase === "responding" ? "Response ready" : phase === "error" ? "Retry available" : ""}</div>
           <Button type="submit" size="icon" disabled={!input.trim() || isThinking} className="mb-0.5 size-9 shrink-0 rounded-[13px] bg-[var(--n-violet)] text-white shadow-none hover:bg-[var(--n-violet-soft)] disabled:bg-white/[0.06] disabled:text-[var(--n-text-faint)]"><ArrowUp className="size-4" /></Button>
         </form>
@@ -448,7 +451,7 @@ function TaskRow({ task, onComplete, onCancel }: { task: TaskItem; onComplete: (
 
 function RailButton({ icon: Icon, label, active, onClick }: { icon: typeof Sparkles; label: string; active?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} title={label} aria-label={label} className={cn("flex size-11 flex-col items-center justify-center gap-1 rounded-2xl text-[var(--n-text-faint)] transition-colors", active ? "bg-[rgba(124,77,255,0.14)] text-[var(--n-violet-soft)]" : "hover:bg-white/5 hover:text-[var(--n-text-dim)]")}>
+    <button type="button" onClick={onClick} title={label} aria-label={label} aria-pressed={Boolean(active)} className={cn("flex size-11 flex-col items-center justify-center gap-1 rounded-2xl text-[var(--n-text-faint)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--n-violet-soft)]", active ? "bg-[rgba(124,77,255,0.14)] text-[var(--n-violet-soft)]" : "hover:bg-white/5 hover:text-[var(--n-text-dim)]")}>
       <Icon className="size-[18px]" />
     </button>
   );
@@ -456,7 +459,7 @@ function RailButton({ icon: Icon, label, active, onClick }: { icon: typeof Spark
 
 function TabBarButton({ icon: Icon, label, active, onClick }: { icon: typeof Sparkles; label: string; active?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={cn("flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-medium transition-colors", active ? "text-[var(--n-violet-soft)]" : "text-[var(--n-text-faint)]")}>
+    <button type="button" onClick={onClick} aria-pressed={Boolean(active)} className={cn("flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--n-violet-soft)]", active ? "text-[var(--n-violet-soft)]" : "text-[var(--n-text-faint)]")}>
       <Icon className="size-[18px]" />
       {label}
     </button>
@@ -475,7 +478,7 @@ function Drawer({ title, onClose, children }: { title: string; onClose: () => vo
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50 animate-rise" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-[380px] flex-col border-l border-[var(--n-border)] bg-[var(--n-bg-raised)] p-5" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 20px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="relative flex h-full w-full max-w-[380px] flex-col border-l border-[var(--n-border)] bg-[var(--n-bg-raised)] p-5" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 20px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}>
         <div className="flex items-center justify-between">
           <h2 className="font-display text-lg tracking-[-0.02em] text-[var(--n-text)]">{title}</h2>
           <button onClick={onClose} className="flex size-8 items-center justify-center rounded-full text-[var(--n-text-faint)] hover:bg-white/5 hover:text-[var(--n-text)]" aria-label="Close"><X className="size-4" /></button>

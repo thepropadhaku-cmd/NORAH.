@@ -9,10 +9,17 @@ export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 // Domain), so a sibling *.manus.space site cannot plant a matching value in a
 // victim's browser.
 export const OAUTH_STATE_COOKIE = "__Host-oauth_state";
+export const NATIVE_OAUTH_REDIRECT_URI = "com.norah.app://oauth-callback";
 
-// `state` carries the callback redirect URI (used at token exchange) plus the
-// CSRF nonce. Defined here so the client encoder and server decoder never drift.
-export type OAuthState = { redirectUri: string; nonce?: string };
+// `state` carries the provider callback URI plus a CSRF nonce. Native login
+// additionally carries a fixed app return URI and an optional S256 PKCE
+// challenge; the server validates it before issuing a one-time session handoff.
+export type OAuthState = {
+  redirectUri: string;
+  nonce?: string;
+  nativeRedirectUri?: string;
+  codeChallenge?: string;
+};
 
 export const encodeOAuthState = (state: OAuthState): string =>
   btoa(JSON.stringify(state));
@@ -28,8 +35,15 @@ export const decodeOAuthState = (state: string): OAuthState => {
     return { redirectUri: "" };
   }
   try {
-    const parsed = JSON.parse(decoded);
-    if (parsed && typeof parsed.redirectUri === "string") return parsed;
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    if (parsed && typeof parsed.redirectUri === "string") {
+      return {
+        redirectUri: parsed.redirectUri,
+        nonce: typeof parsed.nonce === "string" ? parsed.nonce : undefined,
+        nativeRedirectUri: typeof parsed.nativeRedirectUri === "string" ? parsed.nativeRedirectUri : undefined,
+        codeChallenge: typeof parsed.codeChallenge === "string" ? parsed.codeChallenge : undefined,
+      };
+    }
   } catch {
     // Legacy links: `state` was a bare base64(redirectUri) with no nonce.
   }
