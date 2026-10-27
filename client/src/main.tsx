@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { trpc } from "@/lib/trpc";
+import { localNorahApiEndpoint } from "@/lib/localNorahApiEndpoint";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -68,10 +69,10 @@ const trpcClient = trpc.createClient({
         return {};
       },
       fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
+        const requestInit = { ...(init ?? {}), credentials: "include" as const };
+        return Capacitor.isNativePlatform()
+          ? localNorahApiEndpoint.fetch(input, requestInit)
+          : globalThis.fetch(input, requestInit);
       },
     }),
   ],
