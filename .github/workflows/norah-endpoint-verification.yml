@@ -1,0 +1,74 @@
+name: NORAH Endpoint Verification
+
+on:
+  push:
+    branches:
+      - fix/android-api-endpoint-failover
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "client/src/main.tsx"
+      - "client/src/lib/localNorahApiEndpoint.ts"
+      - "client/src/lib/localNorahApiEndpoint.test.ts"
+      - "server/_core/index.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/norah-endpoint-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out verified branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm check
+
+      - name: Endpoint discovery and failover tests
+        run: pnpm exec vitest run client/src/lib/localNorahApiEndpoint.test.ts
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Sync Capacitor Android project
+        run: pnpm exec cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: norah-debug-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
