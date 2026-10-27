@@ -47,7 +47,7 @@ export class LocalNorahApiEndpoint {
 
   async discover(excludePort?: NorahPort): Promise<NorahPort> {
     // Recheck the cached endpoint unless the current request just failed there.
-    if (this.selectedPort !== null && this.selectedPort !== excludePort && await this.isHealthy(this.selectedPort)) {
+    if (this.selectedPort === 3000 && excludePort !== 3000 && await this.isHealthy(3000)) {
       return this.selectedPort;
     }
 
