@@ -20,12 +20,12 @@ function isPortAvailable(port: number): Promise<boolean> {
 }
 
 async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
+  for (let port = startPort; port <= startPort + 1; port++) {
     if (await isPortAvailable(port)) {
       return port;
     }
   }
-  throw new Error(`No available port found starting from ${startPort}`);
+  throw new Error(`NORAH Core could not bind to either supported port ${startPort} or ${startPort + 1}.`);
 }
 
 // The web build is served same-origin, so it never needed CORS. The
@@ -72,6 +72,12 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // Stable identity endpoint used by the native client to distinguish NORAH Core
+  // from any unrelated service that happens to listen on localhost:3000/3001.
+  app.get("/api/norah/health", (_req, res) => {
+    res.status(200).json({ service: "norah-core", apiVersion: 1 });
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
