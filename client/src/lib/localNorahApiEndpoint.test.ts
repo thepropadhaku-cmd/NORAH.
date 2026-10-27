@@ -35,6 +35,15 @@ describe("LocalNorahApiEndpoint", () => {
     await expect(resolver.discover()).rejects.toThrow("NORAH Core is unavailable");
   });
 
+  it("falls back to port 3001 when port 3000 responds as an unrelated service", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes(":3000/")) return healthyResponse("unrelated-service", 1);
+      return healthyResponse();
+    });
+    const resolver = new LocalNorahApiEndpoint(fetchMock as typeof fetch);
+    await expect(resolver.discover()).resolves.toBe(3001);
+  });
+
   it("retries a failed GET on the verified fallback port", async () => {
     let api3000Calls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
