@@ -10,7 +10,7 @@ function healthyResponse(service = "norah-core", apiVersion = 1) {
 
 describe("LocalNorahApiEndpoint", () => {
   it("prefers port 3000 when both ports identify as NORAH Core", async () => {
-    const fetchMock = vi.fn(async () => healthyResponse());
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => healthyResponse());
     const resolver = new LocalNorahApiEndpoint(fetchMock as typeof fetch);
     await expect(resolver.discover()).resolves.toBe(3000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
