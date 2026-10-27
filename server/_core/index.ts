@@ -20,12 +20,14 @@ function isPortAvailable(port: number): Promise<boolean> {
 }
 
 async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port <= startPort + 1; port++) {
+  // Only bind ports the native endpoint resolver knows how to discover.
+  const supportedPorts = startPort === 3001 ? [3001, 3000] : [3000, 3001];
+  for (const port of supportedPorts) {
     if (await isPortAvailable(port)) {
       return port;
     }
   }
-  throw new Error(`NORAH Core could not bind to either supported port ${startPort} or ${startPort + 1}.`);
+  throw new Error("NORAH Core could not bind to either supported port 3000 or 3001.");
 }
 
 // The web build is served same-origin, so it never needed CORS. The
