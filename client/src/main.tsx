@@ -40,7 +40,7 @@ queryClient.getMutationCache().subscribe(event => {
 });
 
 const TRPC_URL = Capacitor.isNativePlatform()
-  ? "http://127.0.0.1:3000/api/trpc"
+  ? "http://127.0.0.1/api/trpc"
   : "/api/trpc";
 
 const trpcClient = trpc.createClient({
