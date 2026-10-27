@@ -2,7 +2,6 @@ const NORAH_PORTS = [3000, 3001] as const;
 type NorahPort = (typeof NORAH_PORTS)[number];
 
 const HEALTH_PATH = "/api/norah/health";
-const API_PATH = "/api/trpc";
 const HEALTH_TIMEOUT_MS = 500;
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -46,16 +45,19 @@ export class LocalNorahApiEndpoint {
     }
   }
 
-  async discover(): Promise<NorahPort> {
-    // Recheck the cached port first for fast recovery when it is still alive.
-    if (this.selectedPort !== null && await this.isHealthy(this.selectedPort)) {
+  async discover(excludePort?: NorahPort): Promise<NorahPort> {
+    // Recheck the cached endpoint unless the current request just failed there.
+    if (this.selectedPort !== null && this.selectedPort !== excludePort && await this.isHealthy(this.selectedPort)) {
       return this.selectedPort;
     }
 
     this.selectedPort = null;
-    // Port 3000 is deliberately preferred. Port 3001 is only accepted when
-    // it proves its identity and port 3000 is unavailable or not NORAH Core.
-    for (const port of NORAH_PORTS) {
+    // Startup prefers 3000. After a request failure, try the alternate port
+    // first so a responsive health route cannot mask a failing API endpoint.
+    const candidates = excludePort === undefined
+      ? NORAH_PORTS
+      : NORAH_PORTS.filter(port => port !== excludePort);
+    for (const port of candidates) {
       if (await this.isHealthy(port)) {
         this.selectedPort = port;
         return port;
@@ -86,7 +88,7 @@ export class LocalNorahApiEndpoint {
       this.selectedPort = null;
       let recoveredPort: NorahPort | null = null;
       try {
-        recoveredPort = await this.discover();
+        recoveredPort = await this.discover(port);
       } catch {
         // Preserve the original request failure for the UI/error boundary.
       }
