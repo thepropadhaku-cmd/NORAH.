@@ -21,7 +21,30 @@ permissions:
   contents: read
 
 jobs:
-  verify-and-build:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out verified branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm check
+
+  test-build-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Check out verified branch
@@ -46,9 +69,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: TypeScript check
-        run: pnpm check
 
       - name: Endpoint discovery and failover tests
         run: pnpm exec vitest run client/src/lib/localNorahApiEndpoint.test.ts
