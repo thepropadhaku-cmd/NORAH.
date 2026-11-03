@@ -289,7 +289,7 @@ function ChatSurface({ messages, isThinking, phase, authLoading, userName, pendi
   copied: number | null;
   speakingMessage: number | null;
   voiceStatus: SpeechStatus;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   input: string;
   onInputChange: (value: string) => void;
   onSend: (value?: string) => void;
