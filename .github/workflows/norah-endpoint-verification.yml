@@ -9,9 +9,11 @@ on:
       - main
     paths:
       - "client/src/main.tsx"
+      - "client/src/pages/Home.tsx"
       - "client/src/lib/localNorahApiEndpoint.ts"
       - "client/src/lib/localNorahApiEndpoint.test.ts"
       - "server/_core/index.ts"
+      - "server/hermesBridge.ts"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/norah-endpoint-verification.yml"
